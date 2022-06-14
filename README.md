@@ -1,4 +1,4 @@
-**torcwa**
+**torcwa-0.1.1**
 ======
 
 * License: LGPL
@@ -29,7 +29,7 @@ Citation
 --------
 ```
 @article{
-	title = {TORCWA: GPU-accelerated Fourier modal method and gradient-based optimization of metasurface},
+	title = {TORCWA: GPU-accelerated Fourier modal method and gradient-based optimization for metasurface design},
 	author ={Kim, Changhyun and Lee, Byoungho},
 	year = {2022},
 	journal = {},
@@ -498,3 +498,4 @@ for it in range(0,iter_max):
 
 Acknowledgements
 ----------------
+This work was supported by the National Research Foundation of Korea (NRF) grant funded by the Korea government (MSIT) (No. 2020R1A2B5B02002730) and Samsung Electronics Co., Ltd (IO201214-08164-01).
