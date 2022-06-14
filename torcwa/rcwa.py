@@ -302,10 +302,9 @@ class rcwa:
 
         return eps_recover, mu_recover
     
-    def S_parameters(self,orders,*,direction='forward',port='transmission',polarization='xx',ref_order=[0,0]):
+    def S_parameters(self,orders,*,direction='forward',port='transmission',polarization='xx',ref_order=[0,0],power_norm=True):
         '''
-            Return normalized S-parameters.
-            The absolute square of S-parameters are corresponds to the ratio of power.
+            Return S-parameters.
 
             Parameters
             - orders: selected orders (Recommended shape: Nx2)
@@ -314,6 +313,7 @@ class rcwa:
             - port: set the direction of light propagation ('transmission' / 'reflection')
             - polarization: set the input and output polarization of light ('xx' / 'yx' / 'xy' / 'yy' (output,input))
             - ref_order: set the reference for calculating S-parameters (Recommended shape: Nx2)
+            - power_norm: if set as True, the absolute square of S-parameters are corresponds to the ratio of power.
 
             Return
             - S-parameters (torch.Tensor)
@@ -335,14 +335,6 @@ class rcwa:
 
         ref_order = torch.as_tensor(ref_order,dtype=torch.int64,device=self._device).reshape([1,2])
 
-        # kz
-        Kz_norm_dn_in = torch.sqrt(self.eps_in*self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
-        Kz_norm_dn_in = torch.where(torch.imag(Kz_norm_dn_in)>0,torch.conj(Kz_norm_dn_in),Kz_norm_dn_in)
-        Kz_norm_dn_in = torch.hstack((Kz_norm_dn_in,Kz_norm_dn_in))
-        Kz_norm_dn_out = torch.sqrt(self.eps_out*self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
-        Kz_norm_dn_out = torch.where(torch.imag(Kz_norm_dn_out)>0,torch.conj(Kz_norm_dn_out),Kz_norm_dn_out)
-        Kz_norm_dn_out = torch.hstack((Kz_norm_dn_out,Kz_norm_dn_out))
-
         # Matching order indices
         orders[orders[:,0]<-self.order[0],0] = int(-self.order[0])
         orders[orders[:,0]>self.order[0],0] = int(self.order[0])
@@ -363,15 +355,83 @@ class rcwa:
         if polarization == 'xy' or polarization == 'yy':
             ref_order_index = ref_order_index + self.order_N
 
+        # power normalization factor
+        if power_norm:
+            Kz_norm_dn_in = torch.real(torch.sqrt(self.eps_in*self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2))
+            Kz_norm_dn_in = torch.hstack((Kz_norm_dn_in,Kz_norm_dn_in))
+            Kz_norm_dn_out = torch.real(torch.sqrt(self.eps_out*self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2))
+            Kz_norm_dn_out = torch.hstack((Kz_norm_dn_out,Kz_norm_dn_out))
+            Kx_norm_dn = torch.hstack((torch.real(self.Kx_norm_dn),torch.real(self.Kx_norm_dn)))
+            Ky_norm_dn = torch.hstack((torch.real(self.Ky_norm_dn),torch.real(self.Ky_norm_dn)))
+
+            if polarization == 'xx':
+                if direction == 'forward' and port == 'transmission':
+                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_in[ref_order_index])
+                elif direction == 'forward' and port == 'reflection':
+                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_in[ref_order_index])
+                elif direction == 'backward' and port == 'reflection':
+                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_out[ref_order_index])
+                elif direction == 'backward' and port == 'transmission':
+                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_out[ref_order_index])
+    
+            elif polarization == 'xy':
+                if direction == 'forward' and port == 'transmission':
+                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_in[ref_order_index])
+                elif direction == 'forward' and port == 'reflection':
+                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_in[ref_order_index])
+                elif direction == 'backward' and port == 'reflection':
+                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_out[ref_order_index])
+                elif direction == 'backward' and port == 'transmission':
+                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_out[ref_order_index])
+
+            elif polarization == 'yx':
+                if direction == 'forward' and port == 'transmission':
+                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_in[ref_order_index])
+                elif direction == 'forward' and port == 'reflection':
+                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_in[ref_order_index])
+                elif direction == 'backward' and port == 'reflection':
+                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_out[ref_order_index])
+                elif direction == 'backward' and port == 'transmission':
+                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_out[ref_order_index])
+            
+            elif polarization == 'yy':
+                if direction == 'forward' and port == 'transmission':
+                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_in[ref_order_index])
+                elif direction == 'forward' and port == 'reflection':
+                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_in[ref_order_index])
+                elif direction == 'backward' and port == 'reflection':
+                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_out[ref_order_index])
+                elif direction == 'backward' and port == 'transmission':
+                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
+                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_out[ref_order_index])
+        
+        else:
+            normalization = 1
+
         # Get S-parameters
         if direction == 'forward' and port == 'transmission':
-            S = self.S[0][order_indices,ref_order_index] * torch.sqrt(torch.real(Kz_norm_dn_out[order_indices])/torch.real(Kz_norm_dn_in[ref_order_index]))
+            S = self.S[0][order_indices,ref_order_index] * normalization
         elif direction == 'forward' and port == 'reflection':
-            S = self.S[1][order_indices,ref_order_index] * torch.sqrt(torch.real(Kz_norm_dn_in[order_indices])/torch.real(Kz_norm_dn_in[ref_order_index]))
+            S = self.S[1][order_indices,ref_order_index] * normalization
         elif direction == 'backward' and port == 'reflection':
-            S = self.S[2][order_indices,ref_order_index] * torch.sqrt(torch.real(Kz_norm_dn_out[order_indices])/torch.real(Kz_norm_dn_out[ref_order_index]))
+            S = self.S[2][order_indices,ref_order_index] * normalization
         elif direction == 'backward' and port == 'transmission':
-            S = self.S[3][order_indices,ref_order_index] * torch.sqrt(torch.real(Kz_norm_dn_in[order_indices])/torch.real(Kz_norm_dn_out[ref_order_index]))
+            S = self.S[3][order_indices,ref_order_index] * normalization
 
         S = torch.where(torch.isinf(S),torch.zeros_like(S),S)
         S = torch.where(torch.isnan(S),torch.zeros_like(S),S)
