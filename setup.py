@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='torcwa',
-    version='0.1.2',
+    version='0.1.3',
     description='GPU-accelerated Fourier modal method with automatic differentiation',
     author='Changhyun Kim',
     author_email='kch3782@snu.ac.kr',
