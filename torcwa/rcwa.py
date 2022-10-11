@@ -38,6 +38,7 @@ class rcwa:
             self._dtype = torch.complex64
         else:
             self._dtype = dtype
+        self._device = device
 
         # Stabilize the gradient of eigendecomposition
         if stable_eig_grad is False:
