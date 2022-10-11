@@ -56,7 +56,7 @@ class rcwa_geo:
             W: width
             Cx: x center
             Cy: y center
-            theta: rotation angle / center: [Cx, Cy] / axis: x-axis
+            theta: rotation angle / center: [Cx, Cy] / axis: z-axis
         '''
 
         theta = torch.as_tensor(theta,dtype=cls.dtype,device=cls.device)
@@ -72,7 +72,7 @@ class rcwa_geo:
             Wy: y width
             Cx: x center
             Cy: y center
-            theta: rotation angle / center: [Cx, Cy] / axis: x-axis
+            theta: rotation angle / center: [Cx, Cy] / axis: z-axis
         '''
 
         theta = torch.as_tensor(theta,dtype=cls.dtype,device=cls.device)
@@ -88,7 +88,7 @@ class rcwa_geo:
             Wy: y diagonal
             Cx: x center
             Cy: y center
-            theta: rotation angle / center: [Cx, Cy] / axis: x-axis
+            theta: rotation angle / center: [Cx, Cy] / axis: z-axis
         '''
 
         theta = torch.as_tensor(theta,dtype=cls.dtype,device=cls.device)
@@ -104,7 +104,7 @@ class rcwa_geo:
             Wy: y width
             Cx: x center
             Cy: y center
-            theta: rotation angle / center: [Cx, Cy] / axis: x-axis
+            theta: rotation angle / center: [Cx, Cy] / axis: z-axis
             power: elliptic power
         '''
 

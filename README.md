@@ -1,4 +1,4 @@
-**torcwa-0.1.1**
+**torcwa-0.1.2**
 ======
 
 * License: LGPL
@@ -30,14 +30,12 @@ Citation
 ```
 @article{
 	title = {TORCWA: GPU-accelerated Fourier modal method and gradient-based optimization for metasurface design},
-	author ={Kim, Changhyun and Lee, Byoungho},
-	year = {2022},
-	journal = {},
-	volume = {},
-	number = {},
-	pages = {},
-	year = {},
-	publisher = {}
+	journal = {Computer Physics Communications},
+	volume = {282},
+	pages = {108552},
+	year = {2023},
+	doi = {https://doi.org/10.1016/j.cpc.2022.108552},
+	author = {Changhyun Kim and Byoungho Lee},
 }
 ```
 
@@ -68,19 +66,22 @@ TORCWA Examples
 2. [Example 1](./example/Example1.ipynb): Simulation with rectangular meta-atom  
 Normal incidence / Parametric sweep on wavelength / View electromagnetic field
 
-3. [Example 2](./example/Example2.ipynb): Simulation with square meta-atom  
+3. [Example 1-1](./example/Example1-1.ipynb): Simulation with stacked meta-atom  
+Normal incidence / View electromagnetic field
+
+4. [Example 2](./example/Example2.ipynb): Simulation with square meta-atom  
 Oblique incidence / View electromagnetic field
 
-4. [Example 3](./example/Example3.ipynb): Simulation with rectangular meta-atom  
+5. [Example 3](./example/Example3.ipynb): Simulation with rectangular meta-atom  
 Normal incidence / Parametric sweep on geometric parameters
 
-5. [Example 4](./example/Example4.ipynb): Gradient calculation of cylindrical meta-atom  
+6. [Example 4](./example/Example4.ipynb): Gradient calculation of cylindrical meta-atom  
 Differentiation of transmittance with respect to radius
 
-6. [Example 5](./example/Example5.ipynb): Shape optimization  
+7. [Example 5](./example/Example5.ipynb): Shape optimization  
 Maximize anisotropy
 
-7. [Example 6](./example/Example6.ipynb): Topology optimization  
+8. [Example 6](./example/Example6.ipynb): Topology optimization  
 Maximize 1st order diffraction
 
 <br/>

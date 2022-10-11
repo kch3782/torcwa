@@ -38,12 +38,7 @@ class rcwa:
             self._dtype = torch.complex64
         else:
             self._dtype = dtype
-        if device != 'cpu' and device != 'cuda' and device != torch.device('cpu') and device != torch.device('cuda'):
-            print('Invalid device. Set as CUDA (if available) or CPU.')
-            self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        else:
-            self._device = device
-        
+
         # Stabilize the gradient of eigendecomposition
         if stable_eig_grad is False:
             self.stable_eig_grad = False
@@ -176,7 +171,11 @@ class rcwa:
         self.layer_N += 1
         self.thickness.append(thickness)
 
-        self._eigen_decomposition()
+        if is_eps_homogenous and is_mu_homogenous:
+            self._eigen_decomposition_homogenous(eps,mu)
+        else:
+            self._eigen_decomposition()
+
         self._solve_layer_smatrix()
 
     # Solve simulation
@@ -1088,6 +1087,24 @@ class rcwa:
         
         return material_convmat
     
+    def _eigen_decomposition_homogenous(self,eps,mu):
+        # H to E transformation matirx
+        self.P.append(torch.hstack((torch.vstack((torch.zeros_like(self.mu_conv[-1]),-self.mu_conv[-1])),
+            torch.vstack((self.mu_conv[-1],torch.zeros_like(self.mu_conv[-1]))))) +
+            1/eps * torch.matmul(torch.vstack((self.Kx_norm,self.Ky_norm)), torch.hstack((self.Ky_norm,-self.Kx_norm))))
+        # E to H transformation matrix
+        self.Q.append(torch.hstack((torch.vstack((torch.zeros_like(self.eps_conv[-1]),self.eps_conv[-1])),
+            torch.vstack((-self.eps_conv[-1],torch.zeros_like(self.eps_conv[-1]))))) +
+            1/mu * torch.matmul(torch.vstack((self.Kx_norm,self.Ky_norm)), torch.hstack((-self.Ky_norm,self.Kx_norm))))
+        
+        E_eigvec = torch.eye(self.P[-1].shape[-1],dtype=self._dtype,device=self._device)
+        kz_norm = torch.sqrt(eps*mu - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
+        kz_norm = torch.where(torch.imag(kz_norm)<0,torch.conj(kz_norm),kz_norm) # Normalized kz for positive mode
+        kz_norm = torch.cat((kz_norm,kz_norm))
+
+        self.kz_norm.append(kz_norm) 
+        self.E_eigvec.append(E_eigvec)
+
     def _eigen_decomposition(self):
         # H to E transformation matirx
         P_tmp = torch.matmul(torch.vstack((self.Kx_norm,self.Ky_norm)), torch.linalg.inv(self.eps_conv[-1]))
