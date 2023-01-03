@@ -1,4 +1,4 @@
-**torcwa-0.1.3**
+**torcwa-0.1.4**
 ======
 
 * License: LGPL
@@ -56,6 +56,18 @@ Installation
 $ pip install torcwa
 ```
 * If the PyTorch version is lower than the required, it will automatically install PyTorch 1.10.1 or higher, but the CPU-only PyTorch or incompatible version may be installed. Therefore, **before installing using the above command, please install PyTorch version that is compatible with GPU**.
+
+<br/>
+
+Updated features in 0.1.4
+------------
+1. For S-parameters and sources, p-pol. and s-pol. notation is also available.
+   - There may be unexpected bugs. If S-paramter is greatly different when comparing with other simulations, or if there are other bugs, please report on issue tap or contact us.
+
+2. When calculating the gradient of eigendecomposition, the default value of the broadening parameter (related to stabilization) is changed to 10^-10.
+
+3. Class 'geometry' is added and have grid number and lattice constant as instance variables.
+   - 'rcwa_geo' uses class variables and class methods, and will be removed in a future version.
 
 <br/>
 

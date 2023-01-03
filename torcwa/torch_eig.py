@@ -6,7 +6,7 @@ Complex domain eigen-decomposition with numerical stability
 '''
 
 class Eig(torch.autograd.Function):
-    broadening_parameter = None
+    broadening_parameter = 1e-10
 
     @staticmethod
     def forward(ctx,x):

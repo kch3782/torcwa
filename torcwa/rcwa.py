@@ -1,3 +1,4 @@
+import warnings
 import torch
 from .torch_eig import Eig
 
@@ -34,17 +35,14 @@ class rcwa:
 
         # Hardware
         if dtype != torch.complex64 and dtype != torch.complex128:
-            print('Invalid simulation data type. Set as torch.complex64.')
+            warnings.warn('Invalid simulation data type. Set as torch.complex64.',UserWarning)
             self._dtype = torch.complex64
         else:
             self._dtype = dtype
         self._device = device
 
         # Stabilize the gradient of eigendecomposition
-        if stable_eig_grad is False:
-            self.stable_eig_grad = False
-        else:
-            self.stable_eig_grad = True
+        self.stable_eig_grad = True if stable_eig_grad else False
 
         # Stability setting for inverse matrix of P and Q
         if avoid_Pinv_instability is True:
@@ -71,8 +69,7 @@ class rcwa:
 
         # Lattice vector
         self.L = L  # unit
-        self.Gx_norm = 1/(L[0]*self.freq)
-        self.Gy_norm = 1/(L[1]*self.freq)
+        self.Gx_norm, self.Gy_norm = 1/(L[0]*self.freq), 1/(L[1]*self.freq)
 
         # Input and output layer (Default: free space)
         self.eps_in = torch.tensor(1.,dtype=self._dtype,device=self._device)
@@ -83,26 +80,17 @@ class rcwa:
         # Internal layers
         self.layer_N = 0  # total number of layers
         self.thickness = []
-
-        self.eps_conv = []
-        self.mu_conv = []
+        self.eps_conv, self.mu_conv = [], []
 
         # Internal layer eigenmodes
-        self.P = []
-        self.Q = []
-        self.kz_norm = []
-        self.E_eigvec = []
-        self.H_eigvec = []
+        self.P, self.Q = [], []
+        self.kz_norm, self.E_eigvec, self.H_eigvec = [], [], []
 
         # Internal layer mode coupling coefficiencts
-        self.Cf = []
-        self.Cb = []
+        self.Cf, self.Cb = [], []
 
         # Single layer scattering matrices
-        self.layer_S11 = []
-        self.layer_S21 = []
-        self.layer_S12 = []
-        self.layer_S22 = []
+        self.layer_S11, self.layer_S21, self.layer_S12, self.layer_S22 = [], [], [], []
 
     def add_input_layer(self,eps=1.,mu=1.):
         '''
@@ -139,17 +127,19 @@ class rcwa:
             Parameters
             - inc_ang: incident angle (unit: radian)
             - azi_ang: azimuthal angle (unit: radian)
-            - angle_layer: reference layer to calculate angle ('input' / 'output')
+            - angle_layer: reference layer to calculate angle ('i', 'in', 'input' / 'o', 'out', 'output')
         '''
 
         self.inc_ang = torch.as_tensor(inc_ang,dtype=self._dtype,device=self._device)
         self.azi_ang = torch.as_tensor(azi_ang,dtype=self._dtype,device=self._device)
 
-        if angle_layer != 'input' and angle_layer != 'output':
-            print('Invalid angle layer. Set as input layer.')
-            angle_layer = 'input'
-
-        self.angle_layer = angle_layer
+        if angle_layer in ['i', 'in', 'input']:
+            self.angle_layer = 'input'
+        elif angle_layer in ['o', 'out', 'output']:
+            angle_layer = 'output'
+        else:
+            warnings.warn('Invalid angle layer. Set as input layer.',UserWarning)
+            self.angle_layer = 'input'
 
         self._kvectors()
 
@@ -227,8 +217,8 @@ class rcwa:
 
             Parameters
             - orders: selected diffraction orders (Recommended shape: Nx2)
-            - layer: selected layer ('input' / 'output')
-            - unit: unit of the output angles ('radian' / 'degree')
+            - layer: selected layer ('i', 'in', 'input' / 'o', 'out', 'output')
+            - unit: unit of the output angles ('r', 'rad', 'radian' / 'd', 'deg', 'degree')
 
             Return
             - inclination angle (torch.Tensor), azimuthal angle (torch.Tensor)
@@ -236,28 +226,33 @@ class rcwa:
 
         orders = torch.as_tensor(orders,dtype=torch.int64,device=self._device).reshape([-1,2])
 
-        if layer != 'input' and layer != 'output':
-            print('Invalid layer. Set as output layer.')
+        if layer in ['i', 'in', 'input']:
+            layer = 'input'
+        elif layer in ['o', 'out', 'output']:
+            layer = 'output'
+        else:
+            warnings.warn('Invalid layer. Set as output layer.',UserWarning)
             layer = 'output'
 
-        if unit != 'radian' and unit != 'degree':
-            print('Invalid unit. Set as radian.')
+        if unit in ['r', 'rad', 'radian']:
+            unit = 'radian'
+        elif unit in ['d', 'deg', 'degree']:
+            unit = 'degree'
+        else:
+            warnings.warn('Invalid unit. Set as radian.',UserWarning)
             unit = 'radian'
 
         # Matching indices
-        orders[orders[:,0]<-self.order[0],0] = int(-self.order[0])
-        orders[orders[:,0]>self.order[0],0] = int(self.order[0])
-        orders[orders[:,1]<-self.order[1],1] = int(-self.order[1])
-        orders[orders[:,1]>self.order[1],1] = int(self.order[1])
-        order_indices = len(self.order_y)*(orders[:,0]+int(self.order[0])) + orders[:,1]+int(self.order[1])
+        order_indices = self._matching_indices(orders)
 
         eps = self.eps_in if layer == 'input' else self.eps_out
         mu = self.mu_in if layer == 'input' else self.mu_out
 
         kx_norm = self.Kx_norm_dn[order_indices]
         ky_norm = self.Ky_norm_dn[order_indices]
-        kt_norm = torch.sqrt(kx_norm**2 + ky_norm**2)
-        inc_angle = torch.real(torch.asin(kt_norm/torch.real(torch.sqrt(eps*mu))))
+        Kt_norm_dn = torch.sqrt(kx_norm**2 + ky_norm**2)
+        kz_norm = torch.sqrt(eps*mu - kx_norm**2 - ky_norm**2)
+        inc_angle = torch.atan2(torch.real(Kt_norm_dn),torch.real(kz_norm))
         azi_angle = torch.atan2(torch.real(ky_norm),torch.real(kx_norm))
 
         if unit == 'degree':
@@ -302,18 +297,19 @@ class rcwa:
 
         return eps_recover, mu_recover
     
-    def S_parameters(self,orders,*,direction='forward',port='transmission',polarization='xx',ref_order=[0,0],power_norm=True):
+    def S_parameters(self,orders,*,direction='forward',port='transmission',polarization='xx',ref_order=[0,0],power_norm=True,evanscent=1e-3):
         '''
             Return S-parameters.
 
             Parameters
             - orders: selected orders (Recommended shape: Nx2)
 
-            - direction: set the direction of light propagation ('forward' / 'backward')
-            - port: set the direction of light propagation ('transmission' / 'reflection')
-            - polarization: set the input and output polarization of light ('xx' / 'yx' / 'xy' / 'yy' (output,input))
+            - direction: set the direction of light propagation ('f', 'forward' / 'b', 'backward')
+            - port: set the direction of light propagation ('t', 'transmission' / 'r', 'reflection')
+            - polarization: set the input and output polarization of light ((output,input) xy-pol: 'xx' / 'yx' / 'xy' / 'yy' , ps-pol: 'pp' / 'sp' / 'ps' / 'ss' )
             - ref_order: set the reference for calculating S-parameters (Recommended shape: Nx2)
-            - power_norm: if set as True, the absolute square of S-parameters are corresponds to the ratio of power.
+            - power_norm: if set as True, the absolute square of S-parameters are corresponds to the ratio of power
+            - evanescent: Criteria for judging the evanescent field. If power_norm=True and real(kz_norm)/imag(kz_norm) < evanscent, function returns 0 (default = 1e-3)
 
             Return
             - S-parameters (torch.Tensor)
@@ -321,134 +317,226 @@ class rcwa:
 
         orders = torch.as_tensor(orders,dtype=torch.int64,device=self._device).reshape([-1,2])
 
-        if not (direction == 'forward' or direction == 'backward'):
-            print('Invalid propagation direction. Set as forward.')
+        if direction in ['f', 'forward']:
+            direction = 'forward'
+        elif direction in ['b', 'backward']:
+            direction = 'backward'
+        else:
+            warnings.warn('Invalid propagation direction. Set as forward.',UserWarning)
             direction = 'forward'
 
-        if not (port == 'transmission' or port == 'reflection'):
-            print('Invalid port. Set as tramsmission.')
+        if port in ['t', 'transmission']:
+            port = 'transmission'
+        elif port in ['r', 'reflection']:
+            port = 'reflection'
+        else:
+            warnings.warn('Invalid port. Set as tramsmission.',UserWarning)
             port = 'transmission'
 
-        if not (polarization == 'xx' or polarization == 'yx' or polarization == 'xy' or polarization == 'yy'):
-            print('Invalid polarization. Set as xx.')
+        if polarization not in ['xx', 'yx', 'xy', 'yy', 'pp', 'sp', 'ps', 'ss']:
+            warnings.warn('Invalid polarization. Set as xx.',UserWarning)
             polarization = 'xx'
 
         ref_order = torch.as_tensor(ref_order,dtype=torch.int64,device=self._device).reshape([1,2])
 
         # Matching order indices
-        orders[orders[:,0]<-self.order[0],0] = int(-self.order[0])
-        orders[orders[:,0]>self.order[0],0] = int(self.order[0])
-        orders[orders[:,1]<-self.order[1],1] = int(-self.order[1])
-        orders[orders[:,1]>self.order[1],1] = int(self.order[1])
-        order_indices = len(self.order_y)*(orders[:,0]+int(self.order[0])) + orders[:,1]+int(self.order[1])
+        order_indices = self._matching_indices(orders)
+        ref_order_index = self._matching_indices(ref_order)
 
-        # Matching reference order index
-        ref_order[ref_order[:,0]<-self.order[0],0] = int(-self.order[0])
-        ref_order[ref_order[:,0]>self.order[0],0] = int(self.order[0])
-        ref_order[ref_order[:,1]<-self.order[1],1] = int(-self.order[1])
-        ref_order[ref_order[:,1]>self.order[1],1] = int(self.order[1])
-        ref_order_index = len(self.order_y)*(ref_order[:,0]+int(self.order[0])) + ref_order[:,1]+int(self.order[1])
+        if polarization in ['xx', 'yx', 'xy', 'yy']:
+            # Matching order indices with polarization
+            if polarization == 'yx' or polarization == 'yy':
+                order_indices = order_indices + self.order_N
+            if polarization == 'xy' or polarization == 'yy':
+                ref_order_index = ref_order_index + self.order_N
 
-        # Matching order indices with polarization
-        if polarization == 'yx' or polarization == 'yy':
-            order_indices = order_indices + self.order_N
-        if polarization == 'xy' or polarization == 'yy':
-            ref_order_index = ref_order_index + self.order_N
+            # power normalization factor
+            if power_norm:
+                Kz_norm_dn_in_complex = torch.sqrt(self.eps_in*self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
+                is_evanescent_in = torch.abs(torch.real(Kz_norm_dn_in_complex) / torch.imag(Kz_norm_dn_in_complex)) < evanscent
+                Kz_norm_dn_in = torch.where(is_evanescent_in,torch.real(torch.zeros_like(Kz_norm_dn_in_complex)),torch.real(Kz_norm_dn_in_complex))
+                Kz_norm_dn_in = torch.hstack((Kz_norm_dn_in,Kz_norm_dn_in))
 
-        # power normalization factor
-        if power_norm:
-            Kz_norm_dn_in = torch.real(torch.sqrt(self.eps_in*self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2))
-            Kz_norm_dn_in = torch.hstack((Kz_norm_dn_in,Kz_norm_dn_in))
-            Kz_norm_dn_out = torch.real(torch.sqrt(self.eps_out*self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2))
-            Kz_norm_dn_out = torch.hstack((Kz_norm_dn_out,Kz_norm_dn_out))
-            Kx_norm_dn = torch.hstack((torch.real(self.Kx_norm_dn),torch.real(self.Kx_norm_dn)))
-            Ky_norm_dn = torch.hstack((torch.real(self.Ky_norm_dn),torch.real(self.Ky_norm_dn)))
+                Kz_norm_dn_out_complex = torch.sqrt(self.eps_out*self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
+                is_evanescent_out = torch.abs(torch.real(Kz_norm_dn_out_complex) / torch.imag(Kz_norm_dn_out_complex)) < evanscent
+                Kz_norm_dn_out = torch.where(is_evanescent_out,torch.abs(torch.real(Kz_norm_dn_out_complex)),torch.real(Kz_norm_dn_out_complex))
+                Kz_norm_dn_out = torch.hstack((Kz_norm_dn_out,Kz_norm_dn_out))
 
-            if polarization == 'xx':
+                Kx_norm_dn = torch.hstack((torch.real(self.Kx_norm_dn),torch.real(self.Kx_norm_dn)))
+                Ky_norm_dn = torch.hstack((torch.real(self.Ky_norm_dn),torch.real(self.Ky_norm_dn)))
+
+                if polarization == 'xx':
+                    numerator_pol, denominator_pol = Kx_norm_dn, Kx_norm_dn
+                elif polarization == 'xy':
+                    numerator_pol, denominator_pol = Kx_norm_dn, Ky_norm_dn
+                elif polarization == 'yx':
+                    numerator_pol, denominator_pol = Ky_norm_dn, Kx_norm_dn
+                elif polarization == 'yy':
+                    numerator_pol, denominator_pol = Ky_norm_dn, Ky_norm_dn
+
                 if direction == 'forward' and port == 'transmission':
-                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_in[ref_order_index])
+                    numerator_kz = Kz_norm_dn_out
+                    denominator_kz = Kz_norm_dn_in
                 elif direction == 'forward' and port == 'reflection':
-                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_in[ref_order_index])
+                    numerator_kz = Kz_norm_dn_in
+                    denominator_kz = Kz_norm_dn_in
                 elif direction == 'backward' and port == 'reflection':
-                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_out[ref_order_index])
+                    numerator_kz = Kz_norm_dn_out
+                    denominator_kz = Kz_norm_dn_out
                 elif direction == 'backward' and port == 'transmission':
-                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_out[ref_order_index])
-    
-            elif polarization == 'xy':
-                if direction == 'forward' and port == 'transmission':
-                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_in[ref_order_index])
-                elif direction == 'forward' and port == 'reflection':
-                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_in[ref_order_index])
-                elif direction == 'backward' and port == 'reflection':
-                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_out[ref_order_index])
-                elif direction == 'backward' and port == 'transmission':
-                    normalization = torch.sqrt((1+(Kx_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_out[ref_order_index])
+                    numerator_kz = Kz_norm_dn_in
+                    denominator_kz = Kz_norm_dn_out
 
-            elif polarization == 'yx':
+                normalization = torch.sqrt((1+(numerator_pol[order_indices]/numerator_kz[order_indices])**2)/(1+(denominator_pol[ref_order_index]/denominator_kz[ref_order_index])**2))
+                normalization = normalization * torch.sqrt(numerator_kz[order_indices]/denominator_kz[ref_order_index])
+            else:
+                normalization = 1.
+
+            # Get S-parameters
+            if direction == 'forward' and port == 'transmission':
+                S = self.S[0][order_indices,ref_order_index] * normalization
+            elif direction == 'forward' and port == 'reflection':
+                S = self.S[1][order_indices,ref_order_index] * normalization
+            elif direction == 'backward' and port == 'reflection':
+                S = self.S[2][order_indices,ref_order_index] * normalization
+            elif direction == 'backward' and port == 'transmission':
+                S = self.S[3][order_indices,ref_order_index] * normalization
+
+            S = torch.where(torch.isinf(S),torch.zeros_like(S),S)
+            S = torch.where(torch.isnan(S),torch.zeros_like(S),S)
+
+            return S
+        
+        elif polarization in ['pp', 'sp', 'ps', 'ss']:
+            if direction == 'forward' and port == 'transmission':
+                idx = 0
+                order_sign, ref_sign = 1, 1
+                order_k0_norm2 = self.eps_out * self.mu_out
+                ref_k0_norm2 = self.eps_in * self.mu_in
+            elif direction == 'forward' and port == 'reflection':
+                idx = 1
+                order_sign, ref_sign = -1, 1
+                order_k0_norm2 = self.eps_in * self.mu_in
+                ref_k0_norm2 = self.eps_in * self.mu_in
+            elif direction == 'backward' and port == 'reflection':
+                idx = 2
+                order_sign, ref_sign = 1, -1
+                order_k0_norm2 = self.eps_out * self.mu_out
+                ref_k0_norm2 = self.eps_out * self.mu_out
+            elif direction == 'backward' and port == 'transmission':
+                idx = 3
+                order_sign, ref_sign = -1, -1
+                order_k0_norm2 = self.eps_in * self.mu_in
+                ref_k0_norm2 = self.eps_out * self.mu_out
+
+            order_Kx_norm_dn = self.Kx_norm_dn[order_indices]
+            order_Ky_norm_dn = self.Ky_norm_dn[order_indices]
+            order_Kt_norm_dn = torch.sqrt(order_Kx_norm_dn**2 + order_Ky_norm_dn**2)
+            order_Kz_norm_dn = order_sign*torch.abs(torch.real(torch.sqrt(order_k0_norm2 - order_Kx_norm_dn**2 - order_Ky_norm_dn**2)))
+            order_Kz_norm_dn_complex = torch.sqrt(order_k0_norm2 - order_Kx_norm_dn**2 - order_Ky_norm_dn**2)
+            order_is_evanescent = torch.abs(torch.real(order_Kz_norm_dn_complex) / torch.imag(order_Kz_norm_dn_complex)) < evanscent
+
+            order_inc_angle = torch.atan2(torch.real(order_Kt_norm_dn),order_Kz_norm_dn)
+            order_azi_angle = torch.atan2(torch.real(order_Ky_norm_dn),torch.real(order_Kx_norm_dn))
+
+            ref_Kx_norm_dn = self.Kx_norm_dn[ref_order_index]
+            ref_Ky_norm_dn = self.Ky_norm_dn[ref_order_index]
+            ref_Kt_norm_dn = torch.sqrt(ref_Kx_norm_dn**2 + ref_Ky_norm_dn**2)
+            ref_Kz_norm_dn = ref_sign*torch.abs(torch.real(torch.sqrt(ref_k0_norm2 - ref_Kx_norm_dn**2 - ref_Ky_norm_dn**2)))
+            ref_Kz_norm_dn_complex = torch.sqrt(ref_k0_norm2 - ref_Kx_norm_dn**2 - ref_Ky_norm_dn**2)
+            ref_is_evanescent = torch.abs(torch.real(ref_Kz_norm_dn_complex) / torch.imag(ref_Kz_norm_dn_complex)) < evanscent
+
+            ref_inc_angle = torch.atan2(torch.real(ref_Kt_norm_dn),ref_Kz_norm_dn)
+            ref_azi_angle = torch.atan2(torch.real(ref_Ky_norm_dn),torch.real(ref_Kx_norm_dn))
+
+            xx = self.S[idx][order_indices,ref_order_index]
+            xy = self.S[idx][order_indices,ref_order_index+self.order_N]
+            yx = self.S[idx][order_indices+self.order_N,ref_order_index]
+            yy = self.S[idx][order_indices+self.order_N,ref_order_index+self.order_N]
+
+            xx = torch.where(order_is_evanescent,torch.zeros_like(xx),xx)
+            xy = torch.where(order_is_evanescent,torch.zeros_like(xy),xy)
+            yx = torch.where(order_is_evanescent,torch.zeros_like(yx),yx)
+            yy = torch.where(order_is_evanescent,torch.zeros_like(yy),yy)
+
+            if ref_is_evanescent:
+                S = torch.zeros_like(xx)
+                return S
+
+            if polarization == 'pp':
+                S = torch.cos(order_azi_angle)/torch.cos(order_inc_angle) * torch.cos(ref_inc_angle)*torch.cos(ref_azi_angle) * xx +\
+                    torch.sin(order_azi_angle)/torch.cos(order_inc_angle) * torch.cos(ref_inc_angle)*torch.cos(ref_azi_angle) * yx +\
+                    torch.cos(order_azi_angle)/torch.cos(order_inc_angle) * torch.cos(ref_inc_angle)*torch.sin(ref_azi_angle) * xy +\
+                    torch.sin(order_azi_angle)/torch.cos(order_inc_angle) * torch.cos(ref_inc_angle)*torch.sin(ref_azi_angle) * yy
+            elif polarization == 'ps':
+                S = torch.cos(order_azi_angle)/torch.cos(order_inc_angle) * (-1)*torch.sin(ref_azi_angle) * xx +\
+                    torch.sin(order_azi_angle)/torch.cos(order_inc_angle) * (-1)*torch.sin(ref_azi_angle) * yx +\
+                    torch.cos(order_azi_angle)/torch.cos(order_inc_angle) * torch.cos(ref_azi_angle) * xy +\
+                    torch.sin(order_azi_angle)/torch.cos(order_inc_angle) * torch.cos(ref_azi_angle) * yy
+            elif polarization == 'sp':
+                S = -torch.sin(order_azi_angle) * torch.cos(ref_inc_angle)*torch.cos(ref_azi_angle) * xx +\
+                    torch.cos(order_azi_angle) * torch.cos(ref_inc_angle)*torch.cos(ref_azi_angle) * yx +\
+                    -torch.sin(order_azi_angle) * torch.cos(ref_inc_angle)*torch.sin(ref_azi_angle) * xy +\
+                    torch.cos(order_azi_angle) * torch.cos(ref_inc_angle)*torch.sin(ref_azi_angle) * yy
+            elif polarization == 'ss':
+                S = -torch.sin(order_azi_angle) * (-1)*torch.sin(ref_azi_angle) * xx +\
+                    torch.cos(order_azi_angle) * (-1)*torch.sin(ref_azi_angle) * yx +\
+                    -torch.sin(order_azi_angle) * torch.cos(ref_azi_angle) * xy +\
+                    torch.cos(order_azi_angle) * torch.cos(ref_azi_angle) * yy
+
+            if power_norm:
+                Kz_norm_dn_in_complex = torch.sqrt(self.eps_in*self.mu_in - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
+                is_evanescent_in = torch.abs(torch.real(Kz_norm_dn_in_complex) / torch.imag(Kz_norm_dn_in_complex)) < evanscent
+                Kz_norm_dn_in = torch.where(is_evanescent_in,torch.real(torch.zeros_like(Kz_norm_dn_in_complex)),torch.real(Kz_norm_dn_in_complex))
+                Kz_norm_dn_in = torch.hstack((Kz_norm_dn_in,Kz_norm_dn_in))
+
+                Kz_norm_dn_out_complex = torch.sqrt(self.eps_out*self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
+                is_evanescent_out = torch.abs(torch.real(Kz_norm_dn_out_complex) / torch.imag(Kz_norm_dn_out_complex)) < evanscent
+                Kz_norm_dn_out = torch.where(is_evanescent_out,torch.abs(torch.real(Kz_norm_dn_out_complex)),torch.real(Kz_norm_dn_out_complex))
+                Kz_norm_dn_out = torch.hstack((Kz_norm_dn_out,Kz_norm_dn_out))
+
+                Kx_norm_dn = torch.hstack((torch.real(self.Kx_norm_dn),torch.real(self.Kx_norm_dn)))
+                Ky_norm_dn = torch.hstack((torch.real(self.Ky_norm_dn),torch.real(self.Ky_norm_dn)))
+
                 if direction == 'forward' and port == 'transmission':
-                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_in[ref_order_index])
+                    numerator_kz = Kz_norm_dn_out
+                    denominator_kz = Kz_norm_dn_in
                 elif direction == 'forward' and port == 'reflection':
-                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_in[ref_order_index])
+                    numerator_kz = Kz_norm_dn_in
+                    denominator_kz = Kz_norm_dn_in
                 elif direction == 'backward' and port == 'reflection':
-                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_out[ref_order_index])
+                    numerator_kz = Kz_norm_dn_out
+                    denominator_kz = Kz_norm_dn_out
                 elif direction == 'backward' and port == 'transmission':
-                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Kx_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_out[ref_order_index])
-            
-            elif polarization == 'yy':
-                if direction == 'forward' and port == 'transmission':
-                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_in[ref_order_index])
-                elif direction == 'forward' and port == 'reflection':
-                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_in[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_in[ref_order_index])
-                elif direction == 'backward' and port == 'reflection':
-                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_out[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_out[order_indices]/Kz_norm_dn_out[ref_order_index])
-                elif direction == 'backward' and port == 'transmission':
-                    normalization = torch.sqrt((1+(Ky_norm_dn[order_indices]/Kz_norm_dn_in[order_indices])**2)/(1+(Ky_norm_dn[ref_order_index]/Kz_norm_dn_out[ref_order_index])**2))
-                    normalization = normalization * torch.sqrt(Kz_norm_dn_in[order_indices]/Kz_norm_dn_out[ref_order_index])
+                    numerator_kz = Kz_norm_dn_in
+                    denominator_kz = Kz_norm_dn_out
+
+                normalization = torch.sqrt(numerator_kz[order_indices]/denominator_kz[ref_order_index])
+            else:
+                normalization = 1.
+
+            S = torch.where(torch.isinf(S),torch.zeros_like(S),S)
+            S = torch.where(torch.isnan(S),torch.zeros_like(S),S)
+
+            return S * normalization
         
         else:
-            normalization = 1
+            return None
 
-        # Get S-parameters
-        if direction == 'forward' and port == 'transmission':
-            S = self.S[0][order_indices,ref_order_index] * normalization
-        elif direction == 'forward' and port == 'reflection':
-            S = self.S[1][order_indices,ref_order_index] * normalization
-        elif direction == 'backward' and port == 'reflection':
-            S = self.S[2][order_indices,ref_order_index] * normalization
-        elif direction == 'backward' and port == 'transmission':
-            S = self.S[3][order_indices,ref_order_index] * normalization
-
-        S = torch.where(torch.isinf(S),torch.zeros_like(S),S)
-        S = torch.where(torch.isnan(S),torch.zeros_like(S),S)
-
-        return S
-
-    def source_planewave(self,*,amplitude=[1.,0.],direction='forward'):
+    def source_planewave(self,*,amplitude=[1.,0.],direction='forward',notation='xy'):
         '''
             Generate planewave
 
             Paramters
-            - amplitude: amplitudes at the matched diffraction orders [Ex_amp, Ey_amp] (list / np.ndarray / torch.Tensor) (Recommended shape: 1x2)
-            - direction: incident direction ('forward' / 'backward')
+            - amplitude: amplitudes at the matched diffraction orders ([Ex_amp, Ey_amp] for 'xy' notation, [Ep_amp, Es_amp] for 'ps' notation)
+              (list / np.ndarray / torch.Tensor) (Recommended shape: 1x2)
+            - direction: incident direction ('f', 'forward' / 'b', 'backward')
+            - notation: amplitude notation (xy-pol: 'xy' / ps-pol: 'ps')
         '''
-        self.source_fourier(amplitude=amplitude,orders=[0,0],direction=direction)
 
-    def source_fourier(self,*,amplitude,orders,direction='forward'):
+        self.source_fourier(amplitude=amplitude,orders=[0,0],direction=direction,notation=notation)
+
+    def source_fourier(self,*,amplitude,orders,direction='forward',notation='xy'):
         '''
             Generate Fourier source
 
@@ -456,26 +544,56 @@ class rcwa:
             - amplitude: amplitudes at the matched diffraction orders [([Ex_amp, Ey_amp] at orders[0]), ..., ...]
                 (list / np.ndarray / torch.Tensor) (Recommended shape: Nx2)
             - orders: diffraction orders (list / np.ndarray / torch.Tensor) (Recommended shape: Nx2)
-            - direction: incident direction ('forward' / 'backward')
+            - direction: incident direction ('f', 'forward' / 'b', 'backward')
+            - notation: amplitude notation (xy-pol: 'xy' / ps-pol: 'ps')
         '''
         amplitude = torch.as_tensor(amplitude,dtype=self._dtype,device=self._device).reshape([-1,2])
         orders = torch.as_tensor(orders,dtype=torch.int64,device=self._device).reshape([-1,2])
 
-        if direction != 'forward' and direction != 'backward':
-            print('Invalid source direction. Set as forward.')
+        if direction in ['f', 'forward']:
+            direction = 'forward'
+        elif direction in ['b', 'backward']:
+            direction = 'backward'
+        else:
+            warnings.warn('Invalid source direction. Set as forward.',UserWarning)
             direction = 'forward'
 
+        if notation not in ['xy', 'ps']:
+            warnings.warn('Invalid amplitude notation. Set as xy notation.',UserWarning)
+            notation = 'xy'
+
         # Matching indices
-        orders[orders[:,0]<-self.order[0],0] = int(-self.order[0])
-        orders[orders[:,0]>self.order[0],0] = int(self.order[0])
-        orders[orders[:,1]<-self.order[1],1] = int(-self.order[1])
-        orders[orders[:,1]>self.order[1],1] = int(self.order[1])
-        order_indices = len(self.order_y)*(orders[:,0]+int(self.order[0])) + orders[:,1]+int(self.order[1])
+        order_indices = self._matching_indices(orders)
 
         self.source_direction = direction
-        self.E_i = torch.zeros([2*self.order_N,1],dtype=self._dtype,device=self._device)
-        self.E_i[order_indices,0] = amplitude[:,0]
-        self.E_i[order_indices+self.order_N,0] = amplitude[:,1]
+
+        E_i = torch.zeros([2*self.order_N,1],dtype=self._dtype,device=self._device)
+        E_i[order_indices,0] = amplitude[:,0]
+        E_i[order_indices+self.order_N,0] = amplitude[:,1]
+
+        # Convert ps-pol to xy-pol
+        if notation == 'ps':
+            if direction == 'forward':
+                eps, mu = self.eps_in, self.mu_in
+                sign = 1
+            else:
+                eps, mu = self.eps_out, self.mu_out
+                sign = -1
+            
+            Kt_norm_dn = torch.sqrt(self.Kx_norm_dn**2 + self.Ky_norm_dn**2)
+            Kz_norm_dn = sign*torch.abs(torch.real(torch.sqrt(eps*mu - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)))
+
+            inc_angle = torch.atan2(torch.real(Kt_norm_dn),Kz_norm_dn)
+            azi_angle = torch.atan2(torch.real(self.Ky_norm_dn),torch.real(self.Kx_norm_dn))
+
+            tmp1 = torch.vstack((torch.diag(torch.cos(inc_angle)*torch.cos(azi_angle)),
+                                torch.diag(torch.cos(inc_angle)*torch.sin(azi_angle))))
+            tmp2 = torch.vstack((torch.diag(-torch.sin(azi_angle)),torch.diag(torch.cos(azi_angle))))
+            ps2xy = torch.hstack((tmp1, tmp2)) 
+            
+            E_i = torch.matmul(ps2xy.to(self._dtype),E_i)
+
+        self.E_i = E_i
 
     def field_xz(self,x_axis,z_axis,y):
         '''
@@ -490,22 +608,17 @@ class rcwa:
             Return
             - [Ex, Ey, Ez] (list[torch.Tensor]), [Hx, Hy, Hz] (list[torch.Tensor])
         '''
-
+            
         if type(x_axis) != torch.Tensor or type(z_axis) != torch.Tensor:
-            print("x and z axis must be torch.Tensor type. Return None.")
+            warnings.warn('x and z axis must be torch.Tensor type. Return None.',UserWarning)
             return None
 
         x_axis = x_axis.reshape([-1,1,1])
 
-        Kx_norm = self.Kx_norm
-        Ky_norm = self.Ky_norm
+        Kx_norm, Ky_norm = self.Kx_norm, self.Ky_norm
 
-        Ex_split = []
-        Ey_split = []
-        Ez_split = []
-        Hx_split = []
-        Hy_split = []
-        Hz_split = []
+        Ex_split, Ey_split, Ez_split = [], [], []
+        Hx_split, Hy_split, Hz_split = [], [], []
 
         # layer number
         zp = torch.zeros(len(self.thickness),device=self._device)
@@ -676,20 +789,15 @@ class rcwa:
         '''
 
         if type(y_axis) != torch.Tensor or type(z_axis) != torch.Tensor:
-            print("x and z axis must be torch.Tensor type. Return None.")
+            warnings.warn('y and z axis must be torch.Tensor type. Return None.',UserWarning)
             return None
 
         y_axis = y_axis.reshape([-1,1,1])
 
-        Kx_norm = self.Kx_norm
-        Ky_norm = self.Ky_norm
+        Kx_norm, Ky_norm = self.Kx_norm, self.Ky_norm
 
-        Ex_split = []
-        Ey_split = []
-        Ez_split = []
-        Hx_split = []
-        Hy_split = []
-        Hz_split = []
+        Ex_split, Ey_split, Ez_split = [], [], []
+        Hx_split, Hy_split, Hz_split = [], [], []
 
         # layer number
         zp = torch.zeros(len(self.thickness),device=self._device)
@@ -866,28 +974,26 @@ class rcwa:
         '''
 
         if type(layer_num) != int:
-            print("Parameter 'layer_num' must be int type. Return None.")
+            warnings.warn('Parameter "layer_num" must be int type. Return None.',UserWarning)
             return None
 
         if layer_num < -1 or layer_num > self.layer_N:
-            print('Layer number is out of range. Return None.')
+            warnings.warn('Layer number is out of range. Return None.',UserWarning)
             return None
 
         if type(x_axis) != torch.Tensor or type(y_axis) != torch.Tensor:
-            print("x and y axis must be torch.Tensor type. Return None.")
+            warnings.warn('x and y axis must be torch.Tensor type. Return None.',UserWarning)
             return None
         
         # [x, y, diffraction order]
         x_axis = x_axis.reshape([-1,1,1])
         y_axis = y_axis.reshape([1,-1,1])
 
-        Kx_norm = self.Kx_norm
-        Ky_norm = self.Ky_norm
+        Kx_norm, Ky_norm = self.Kx_norm, self.Ky_norm
 
         # Input and output layers
         if layer_num == -1 or layer_num == self.layer_N:
-            Kx_norm_dn = self.Kx_norm_dn
-            Ky_norm_dn = self.Ky_norm_dn
+            Kx_norm_dn, Ky_norm_dn = self.Kx_norm_dn, self.Ky_norm_dn
 
             if layer_num == -1:
                 z_prop = z_prop if z_prop <= 0. else 0.
@@ -1006,13 +1112,22 @@ class rcwa:
         return [Ex, Ey, Ez], [Hx, Hy, Hz]
 
     # Internal functions
+    def _matching_indices(self,orders):
+        orders[orders[:,0]<-self.order[0],0] = int(-self.order[0])
+        orders[orders[:,0]>self.order[0],0] = int(self.order[0])
+        orders[orders[:,1]<-self.order[1],1] = int(-self.order[1])
+        orders[orders[:,1]>self.order[1],1] = int(self.order[1])
+        order_indices = len(self.order_y)*(orders[:,0]+int(self.order[0])) + orders[:,1]+int(self.order[1])
+
+        return order_indices
+
     def _kvectors(self):
         if self.angle_layer == 'input':
-            self.kx0_norm = torch.sqrt(self.eps_in*self.mu_in) * torch.sin(self.inc_ang) * torch.cos(self.azi_ang)
-            self.ky0_norm = torch.sqrt(self.eps_in*self.mu_in) * torch.sin(self.inc_ang) * torch.sin(self.azi_ang)
+            self.kx0_norm = torch.real(torch.sqrt(self.eps_in*self.mu_in)) * torch.sin(self.inc_ang) * torch.cos(self.azi_ang)
+            self.ky0_norm = torch.real(torch.sqrt(self.eps_in*self.mu_in)) * torch.sin(self.inc_ang) * torch.sin(self.azi_ang)
         else:
-            self.kx0_norm = torch.sqrt(self.eps_out*self.mu_out) * torch.sin(self.inc_ang) * torch.cos(self.azi_ang)
-            self.ky0_norm = torch.sqrt(self.eps_out*self.mu_out) * torch.sin(self.inc_ang) * torch.sin(self.azi_ang)
+            self.kx0_norm = torch.real(torch.sqrt(self.eps_out*self.mu_out)) * torch.sin(self.inc_ang) * torch.cos(self.azi_ang)
+            self.ky0_norm = torch.real(torch.sqrt(self.eps_out*self.mu_out)) * torch.sin(self.inc_ang) * torch.sin(self.azi_ang)
 
         # Free space k-vectors and E to H transformation matrix
         self.kx_norm = self.kx0_norm + self.order_x * self.Gx_norm
