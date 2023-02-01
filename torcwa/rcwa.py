@@ -136,7 +136,7 @@ class rcwa:
         if angle_layer in ['i', 'in', 'input']:
             self.angle_layer = 'input'
         elif angle_layer in ['o', 'out', 'output']:
-            angle_layer = 'output'
+            self.angle_layer = 'output'
         else:
             warnings.warn('Invalid angle layer. Set as input layer.',UserWarning)
             self.angle_layer = 'input'

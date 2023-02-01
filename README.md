@@ -1,4 +1,4 @@
-**torcwa-0.1.4**
+**torcwa-0.1.4.1**
 ======
 
 * License: LGPL
@@ -68,6 +68,9 @@ Updated features in 0.1.4
 
 3. Class 'geometry' is added and have grid number and lattice constant as instance variables.
    - 'rcwa_geo' uses class variables and class methods, and will be removed in a future version.
+
+4. Minor bugs are fixed in version 0.1.4.1
+
 
 <br/>
 
