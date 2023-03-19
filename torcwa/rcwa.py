@@ -359,7 +359,7 @@ class rcwa:
 
                 Kz_norm_dn_out_complex = torch.sqrt(self.eps_out*self.mu_out - self.Kx_norm_dn**2 - self.Ky_norm_dn**2)
                 is_evanescent_out = torch.abs(torch.real(Kz_norm_dn_out_complex) / torch.imag(Kz_norm_dn_out_complex)) < evanscent
-                Kz_norm_dn_out = torch.where(is_evanescent_out,torch.abs(torch.real(Kz_norm_dn_out_complex)),torch.real(Kz_norm_dn_out_complex))
+                Kz_norm_dn_out = torch.where(is_evanescent_out,torch.real(torch.zeros_like(Kz_norm_dn_out_complex)),torch.real(Kz_norm_dn_out_complex))
                 Kz_norm_dn_out = torch.hstack((Kz_norm_dn_out,Kz_norm_dn_out))
 
                 Kx_norm_dn = torch.hstack((torch.real(self.Kx_norm_dn),torch.real(self.Kx_norm_dn)))
@@ -623,7 +623,7 @@ class rcwa:
         # layer number
         zp = torch.zeros(len(self.thickness),device=self._device)
         zm = torch.zeros(len(self.thickness),device=self._device)
-        layer_num = torch.zeros([len(z_axis)],dtype=torch.int64)
+        layer_num = torch.zeros([len(z_axis)],dtype=torch.int64,device=self._device)
         layer_num[z_axis<0.] = -1
 
         for ti in range(len(self.thickness)):
@@ -802,7 +802,7 @@ class rcwa:
         # layer number
         zp = torch.zeros(len(self.thickness),device=self._device)
         zm = torch.zeros(len(self.thickness),device=self._device)
-        layer_num = torch.zeros([len(z_axis)],dtype=torch.int64)
+        layer_num = torch.zeros([len(z_axis)],dtype=torch.int64,device=self._device)
         layer_num[z_axis<0.] = -1
 
         for ti in range(len(self.thickness)):
